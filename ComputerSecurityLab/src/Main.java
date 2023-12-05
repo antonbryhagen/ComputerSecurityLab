@@ -12,45 +12,54 @@ import java.util.Scanner;
 
 public class Main {
     public static void main(String[] args) {
-        byte[] encKey1 = new byte[128];
-        byte[] encKey2 = new byte[128];
-        byte[] encIV = new byte[128];
 
-        byte[] key1 = new byte[128];
-        byte[] key2 = new byte[128];
-        byte[] iv = new byte[128];
+        byte[] encKey1 = readCiphertext(0, 128);
+        byte[] encIV = readCiphertext(128, 128);
+        byte[] encKey2 = readCiphertext(256, 128);
+        byte[] encryptedMessage = readCiphertext(384, 1424);
 
-        byte[] encryptedMessage = new byte[1424];
-
-        String storePassword = "lab1StorePass";
-        String labOneKeyPassword = "lab1KeyPass";
-        String labOneKeyAlias = "lab1EncKeys";
+        byte[] key1 = decryptKey(encKey1);
+        byte[] key2 = decryptKey(encKey2);
+        byte[] iv = decryptKey(encIV);
 
         String messageString;
 
-        RSAPrivateKey labOneKey = loadKey("../lab1Store", storePassword.toCharArray(), labOneKeyAlias, labOneKeyPassword.toCharArray());
+        messageString = decryptMessage(key1, iv, encryptedMessage);
+        System.out.println(messageString);
+        verifyMac(messageString, key2);
+        verifySignature(messageString);
 
-        int textOffset = 384; // 3*128, start from this byt
 
+    }
+
+    public static byte[] readCiphertext(int offset, int byteSize){
+        byte[] buffer = new byte[offset];
+        byte[] byteArray = new byte[byteSize];
         File f = new File("../ciphertext.enc");
         try {
             FileInputStream fileInStream = new FileInputStream(f);
-            fileInStream.read(encKey1);
-            fileInStream.read(encIV);
-            fileInStream.read(encKey2);
-            fileInStream.read(encryptedMessage);
+            fileInStream.read(buffer);
+            fileInStream.read(byteArray);
+            return byteArray;
         } catch (FileNotFoundException e) {
             throw new RuntimeException(e);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static byte[] decryptKey(byte[] key){
+        String storePassword = "lab1StorePass";
+        String labOneKeyPassword = "lab1KeyPass";
+        String labOneKeyAlias = "lab1EncKeys";
+        byte[] decryptedKey = new byte[128];
+        RSAPrivateKey labOneKey = loadKey("../lab1Store", storePassword.toCharArray(), labOneKeyAlias, labOneKeyPassword.toCharArray());
 
         try {
             Cipher rsaDec = Cipher.getInstance("RSA");
             rsaDec.init(Cipher.DECRYPT_MODE, labOneKey);
-            key1 = rsaDec.doFinal(encKey1);
-            key2 = rsaDec.doFinal(encKey2);
-            iv = rsaDec.doFinal(encIV);
+            decryptedKey = rsaDec.doFinal(key);
+            return decryptedKey;
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         } catch (NoSuchPaddingException e) {
@@ -62,16 +71,18 @@ public class Main {
         } catch (BadPaddingException e) {
             throw new RuntimeException(e);
         }
+    }
 
+    public static String decryptMessage(byte[] key, byte[] iv, byte[] encryptedMessage){
         try{
-            SecretKeySpec secretKey = new SecretKeySpec(key1, "AES");
+            SecretKeySpec secretKey = new SecretKeySpec(key, "AES");
             IvParameterSpec ivParameterSpec = new IvParameterSpec(iv);
             Cipher aesDec = Cipher.getInstance("AES/CBC/PKCS5Padding");
             aesDec.init(Cipher.DECRYPT_MODE, secretKey, ivParameterSpec);
 
             byte[] message = aesDec.doFinal(encryptedMessage);
-            messageString = new String(message, "UTF-8");
-            System.out.println(messageString);
+            String messageString = new String(message, "UTF-8");
+            return messageString;
         } catch (NoSuchPaddingException e) {
             throw new RuntimeException(e);
         } catch (NoSuchAlgorithmException e) {
@@ -87,7 +98,9 @@ public class Main {
         } catch (UnsupportedEncodingException e) {
             throw new RuntimeException(e);
         }
+    }
 
+    public static void verifyMac(String messageString, byte[] key){
         String macOne = "";
         String macTwo = "";
 
@@ -111,8 +124,8 @@ public class Main {
         byte[] macVal = null;
         try {
             Mac mac = Mac.getInstance("HmacMD5");
-            SecretKeySpec secretKey2 = new SecretKeySpec(key2, "HmacMD5");
-            mac.init(secretKey2);
+            SecretKeySpec secretKey = new SecretKeySpec(key, "HmacMD5");
+            mac.init(secretKey);
             mac.update(messageString.getBytes());
             macVal = mac.doFinal();
             calculatedMac = bytesToHex(macVal);
@@ -129,7 +142,9 @@ public class Main {
         }else{
             System.out.println("Calculated mac doesn't match any provided mac");
         }
+    }
 
+    public static void verifySignature(String messageString){
         byte[] sigOne = new byte[128];
         byte[] sigTwo = new byte[128];
 
@@ -154,7 +169,6 @@ public class Main {
             PublicKey puKey = certificate.getPublicKey();
 
             Signature myVerify = Signature.getInstance("SHA1withRSA");
-
             myVerify.initVerify(puKey);
             myVerify.update(messageString.getBytes());
             sigOneVerified = myVerify.verify(sigOne);
@@ -182,8 +196,6 @@ public class Main {
         } catch (SignatureException e) {
             throw new RuntimeException(e);
         }
-
-
     }
 
     public static RSAPrivateKey loadKey(String storeFileName, char[] storePassword, String alias, char[] keyPassword){
